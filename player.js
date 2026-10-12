@@ -364,15 +364,28 @@ const live=o=>o&&o.btn&&o.btn.interactable!==false;
 const cvs=$('#c'),g=cvs.getContext('2d');
 let view={x:0,y:0,w:8,h:4.5,mode:'height',bg:'#222222'},cam={x:0,y:0,z:100},CW=0,CH=0,DPR=1,clipRect=null;
 function layoutView(){
-  CW=innerWidth;CH=innerHeight;DPR=Math.min(devicePixelRatio||1,2);
+  CW=innerWidth;CH=innerHeight;DPR=Math.min(devicePixelRatio||1,view.dpr>0?view.dpr:2);
   const pw=Math.round(CW*DPR),ph=Math.round(CH*DPR);if(cvs.width!=pw||cvs.height!=ph){cvs.width=pw;cvs.height=ph}
-  let z;
-  if(view.mode=='fit')z=Math.min(CW/view.w,CH/view.h);else if(view.mode=='width')z=CW/view.w;else z=CH/view.h;
+  /* режимы JS Screen: fit / pixel (целый зум) — с полями; expand — без полей, видно всё; cover — заполняет экран; width / height — по стороне */
+  let z;const m=view.mode;
+  if(m=='fit'||m=='pixel'||m=='expand')z=Math.min(CW/view.w,CH/view.h);else if(m=='cover')z=Math.max(CW/view.w,CH/view.h);else if(m=='width')z=CW/view.w;else z=CH/view.h;
+  if(view.maxScale>0)z=Math.min(z,view.maxScale*PPU);
+  if(m=='pixel'){const f=z/PPU;z=(f>=1?Math.floor(f):f)*PPU}
   cam={x:view.x,y:view.y,z};
-  clipRect=view.mode=='fit'?{x:CW/2-view.w*z/2,y:CH/2-view.h*z/2,w:view.w*z,h:view.h*z}:null}
+  clipRect=m=='fit'||m=='pixel'?{x:CW/2-view.w*z/2,y:CH/2-view.h*z/2,w:view.w*z,h:view.h*z}:null;
+  orientCheck()}
+/* подсказка «Поверните устройство», если JS Screen требует другую ориентацию */
+let rotEl=null;
+function orientCheck(){const o=view.orient;
+  if(o!='landscape'&&o!='portrait'){if(rotEl)rotEl.style.display='none';return}
+  if(!rotEl){rotEl=document.createElement('div');
+    rotEl.style.cssText='position:fixed;inset:0;z-index:5;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:'+(view.bgOuter||'#000')+';color:#ddd;font:16px system-ui,sans-serif;text-align:center;padding:24px';
+    rotEl.innerHTML='<div style="font-size:48px">\u27F3</div><div>Поверните устройство</div>';document.body.appendChild(rotEl)}
+  rotEl.style.display=(o=='landscape'&&CH>CW)||(o=='portrait'&&CW>CH)?'flex':'none'}
 const toWorld=e=>{const r=cvs.getBoundingClientRect();return{x:(e.clientX-r.left-CW/2)/cam.z+cam.x,y:-(e.clientY-r.top-CH/2)/cam.z+cam.y}};
 function render(){
-  g.setTransform(DPR,0,0,DPR,0,0);g.fillStyle=view.bgOuter||'#000';g.fillRect(0,0,CW,CH);
+  g.setTransform(DPR,0,0,DPR,0,0);g.imageSmoothingEnabled=view.smooth!==false;if(view.smooth!==false)g.imageSmoothingQuality='high';
+  g.fillStyle=view.bgOuter||'#000';g.fillRect(0,0,CW,CH);
   g.save();if(clipRect){g.beginPath();g.rect(clipRect.x,clipRect.y,clipRect.w,clipRect.h);g.clip()}
   g.fillStyle=view.bg;g.fillRect(0,0,CW,CH);
   const sx=x=>(x-cam.x)*cam.z+CW/2,sy=y=>CH/2-(y-cam.y)*cam.z;
@@ -425,8 +438,9 @@ async function boot(){
   (G.assets||[]).filter(a=>a.parent).forEach(m=>{const p=amap.get(m.parent);if(!p)return;const rc=m.rect,c=document.createElement('canvas');c.width=rc.w;c.height=rc.h;
     c.getContext('2d').drawImage(p.img,rc.x,rc.y,rc.w,rc.h,0,0,rc.w,rc.h);amap.set(m.id,{id:m.id,parent:m.parent,rect:rc,img:c})});
   layoutView();bindInput();$('#load').style.display='none';
-  const fs=$('#fs');if(fs&&document.documentElement.requestFullscreen){fs.style.display='block';
-    fs.onclick=()=>{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{})}}
+  const fs=$('#fs');if(fs&&view.fs!==false&&document.documentElement.requestFullscreen){fs.style.display='block';
+    fs.onclick=()=>{if(document.fullscreenElement){document.exitFullscreen();return}
+      document.documentElement.requestFullscreen().then(()=>{const o=view.orient;if((o=='landscape'||o=='portrait')&&screen.orientation&&screen.orientation.lock)screen.orientation.lock(o).catch(()=>{})}).catch(()=>{})}}
   window.__game={objs,run,order,get,fire,rayHit,handler,cam:()=>cam};
   requestAnimationFrame(frame)}
 boot();
